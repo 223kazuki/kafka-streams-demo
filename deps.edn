@@ -1,1 +1,19 @@
-{:deps {fundingcircle/jackdaw {:mvn/version "0.9.1"}}}
+{:paths
+ ["src" "resources"]
+
+ :deps {fundingcircle/jackdaw          {:mvn/version "0.9.3"}
+        spootnik/kinsky                {:mvn/version "0.1.23"
+                                        :exclusions [org.apache.kafka/kafka-clients]}
+        ch.qos.logback/logback-classic {:mvn/version "1.2.3"}
+        org.clojure/tools.logging      {:mvn/version "0.4.1"}}
+
+ :aliases {:dev
+           {:extra-deps {nrepl/nrepl       {:mvn/version "0.9.0-beta5"}
+                         cider/cider-nrepl {:mvn/version "0.27.2"}}
+            :main-opts  ["-m"
+                         "nrepl.cmdline"
+                         "--middleware"
+                         "[cider.nrepl/cider-middleware]"]}}
+
+ :mvn/repos {"confluent" {:url "https://packages.confluent.io/maven/"}
+             "mulesoft"  {:url "https://repository.mulesoft.org/nexus/content/repositories/public/"}}}
