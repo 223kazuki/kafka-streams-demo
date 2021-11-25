@@ -1,0 +1,1 @@
+{:deps {fundingcircle/jackdaw {:mvn/version "0.9.1"}}}
