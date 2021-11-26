@@ -2,8 +2,7 @@
   (:require [clojure.tools.logging :refer [info]]
             [jackdaw.streams :as j]
             [kinsky.client :as client]
-            [jackdaw.serdes.edn :as jse])
-  (:import [org.apache.kafka.common.serialization Serdes]))
+            [jackdaw.serdes :as js]))
 
 (defn topic-config
   "Takes a topic name and returns a topic configuration map, which may
@@ -12,19 +11,16 @@
   {:topic-name topic-name
    :partition-count 2
    :replication-factor 1
-   :key-serde #_(Serdes/serdeFrom
-                 (client/keyword-serializer)
-                 (client/keyword-deserializer))
-   :value-serde (Serdes/serdeFrom
-                 (client/edn-serializer)
-                 (client/edn-deserializer))})
+   :key-serde (js/edn-serde)
+   :value-serde (js/edn-serde)})
 
 (defn app-config
   "Returns the application config."
   []
-  {"application.id" "pipe3"
-   "group.id" "a"
+  {"application.id" "pipe"
    "bootstrap.servers" "localhost:9092"
+   "default.key.serde" "jackdaw.serdes.EdnSerde"
+   "default.value.serde" "jackdaw.serdes.EdnSerde"
    "cache.max.bytes.buffering" "0"})
 
 (defn build-topology
