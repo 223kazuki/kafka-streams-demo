@@ -2,7 +2,7 @@
   (:require [clojure.tools.logging :refer [info]]
             [jackdaw.streams :as j]
             [kinsky.client :as client]
-            [jackdaw.serdes :as js]))
+            [jackdaw.serdes.edn :as jse]))
 
 (defn topic-config
   "Takes a topic name and returns a topic configuration map, which may
@@ -11,8 +11,8 @@
   {:topic-name topic-name
    :partition-count 2
    :replication-factor 1
-   :key-serde (js/edn-serde)
-   :value-serde (js/edn-serde)})
+   :key-serde (jse/serde)
+   :value-serde (jse/serde)})
 
 (defn app-config
   "Returns the application config."
@@ -25,10 +25,10 @@
 
 (defn build-topology
   [builder]
-  (-> (j/kstream builder (topic-config "command"))
+  (-> (j/kstream builder (topic-config "input"))
       (j/peek (fn [[k v]]
-                (println (str {:key k :value v}))))
-      (j/to (topic-config "event")))
+                (info (str {:key k :value v}))))
+      (j/to (topic-config "output")))
   builder)
 
 (defn start-app
@@ -66,11 +66,10 @@
                           (client/keyword-deserializer)
                           (client/edn-deserializer)))
 
-  (client/send! p "command" :account-a {:action :login})
+  (client/send! p "input" :account-a {:action :login})
 
-  (client/subscribe! c "command")
-  (client/subscribe! c "event")
+  (client/subscribe! c "input")
+  (client/subscribe! c "output")
   (client/poll! c 100)
 
-  (-main)
-  )
+  (-main))

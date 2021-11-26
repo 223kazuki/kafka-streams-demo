@@ -1,11 +1,14 @@
-{:paths
- ["src" "resources"]
+{:paths ["src" "resources"]
 
- :deps {fundingcircle/jackdaw          {:mvn/version "0.9.3"}
-        spootnik/kinsky                {:mvn/version "0.1.23"
-                                        :exclusions [org.apache.kafka/kafka-clients]}
-        ch.qos.logback/logback-classic {:mvn/version "1.2.3"}
-        org.clojure/tools.logging      {:mvn/version "0.4.1"}}
+ :deps {ch.qos.logback/logback-classic {:mvn/version "1.2.3"}
+        fundingcircle/jackdaw          {:mvn/version "0.9.3"
+                                        :exclusions  [org.apache.kafka/kafka-streams
+                                                      io.confluent/kafka-schema-registry-client
+                                                      io.confluent/kafka-avro-serializer]}
+        org.apache.kafka/kafka-streams {:mvn/version "2.8.1"}
+        org.clojure/clojure            {:mvn/version "1.10.1"}
+        org.clojure/tools.logging      {:mvn/version "0.4.1"}
+        spootnik/kinsky                {:mvn/version "0.1.23"}}
 
  :aliases {:dev
            {:extra-deps {nrepl/nrepl       {:mvn/version "0.9.0-beta5"}
