@@ -2,7 +2,8 @@
   (:require [clojure.tools.logging :refer [info]]
             [jackdaw.client :as jc]
             [jackdaw.serdes.edn :as jse]
-            [jackdaw.streams :as j]))
+            [jackdaw.streams :as j]
+            [jackdaw.streams.lambdas :as lambdas :refer [key-value]]))
 
 (defn topic-config
   "Takes a topic name and returns a topic configuration map, which may
@@ -25,11 +26,23 @@
 
 (defn build-topology
   [builder]
-  (let [ktable (j/ktable builder (topic-config "input-ktable"))]
+  (let [ktable (j/ktable builder (topic-config "input-ktable"))
+        _ (j/with-kv-state-store builder {:store-name "input-state-store"})]
     (-> (j/kstream builder (topic-config "input"))
         (j/left-join ktable #(assoc %1 :joined %2))
         (j/peek (fn [[k v]]
                   (info (str {:key k :value v}))))
+        (j/transform
+         (lambdas/transformer-with-ctx
+          (fn [ctx k v]
+            (let [store (.getStateStore ctx "input-state-store")
+                  cur-val (.get store k)
+                  _ (info cur-val)
+                  new-val {:d v}]
+              (.put store k new-val)
+              (key-value [k new-val]))))
+         ["input-state-store"])
+        (j/map-values #(dissoc % :joined))
         (doto #_a
           (j/to (topic-config "output"))
           (j/to (topic-config "input-ktable")))))
