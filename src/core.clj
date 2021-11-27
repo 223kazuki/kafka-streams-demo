@@ -25,10 +25,14 @@
 
 (defn build-topology
   [builder]
-  (-> (j/kstream builder (topic-config "input"))
-      (j/peek (fn [[k v]]
-                (info (str {:key k :value v}))))
-      (j/to (topic-config "output")))
+  (let [ktable (j/ktable builder (topic-config "input-ktable"))]
+    (-> (j/kstream builder (topic-config "input"))
+        (j/left-join ktable #(assoc %1 :joined %2))
+        (j/peek (fn [[k v]]
+                  (info (str {:key k :value v}))))
+        (doto #_a
+          (j/to (topic-config "output"))
+          (j/to (topic-config "input-ktable")))))
   builder)
 
 (defn start-app
