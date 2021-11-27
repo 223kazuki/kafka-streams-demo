@@ -1,8 +1,8 @@
 (ns kafka-streams-demo
   (:require [clojure.tools.logging :refer [info]]
-            [jackdaw.streams :as j]
-            [kinsky.client :as client]
-            [jackdaw.serdes.edn :as jse]))
+            [jackdaw.client :as jc]
+            [jackdaw.serdes.edn :as jse]
+            [jackdaw.streams :as j]))
 
 (defn topic-config
   "Takes a topic name and returns a topic configuration map, which may
@@ -53,23 +53,22 @@
 
 (comment
 
-  (info 1)
   (def app (start-app (app-config)))
   (stop-app app)
 
-  (def p (client/producer {:bootstrap.servers "localhost:9092"}
-                          (client/keyword-serializer)
-                          (client/edn-serializer)))
+  (def p (jc/producer {:bootstrap.servers "localhost:9092"}
+                      {:key-serde (jse/serde)
+                       :value-serde (jse/serde)}))
 
-  (def c (client/consumer {:bootstrap.servers "localhost:9092"
-                           :group.id          "mygroup"}
-                          (client/keyword-deserializer)
-                          (client/edn-deserializer)))
+  @(jc/produce! p {:topic-name "input"} :a {:b :c})
 
-  (client/send! p "input" :account-a {:action :login})
+  (def c (jc/consumer {:bootstrap.servers "localhost:9092"
+                       :group.id          "mygroup"}
+                      {:key-serde (jse/serde)
+                       :value-serde (jse/serde)}))
 
-  (client/subscribe! c "input")
-  (client/subscribe! c "output")
-  (client/poll! c 100)
+  (jc/subscribe c [{:topic-name "input"}])
 
-  (-main))
+  (jc/poll c 100)
+
+  )
