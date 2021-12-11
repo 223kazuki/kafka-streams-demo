@@ -18,7 +18,7 @@
 (defn app-config
   "Returns the application config."
   []
-  {"application.id" "pipe"
+  {"application.id" "entity-updap"
    "bootstrap.servers" "localhost:9092"
    "default.key.serde" "jackdaw.serdes.EdnSerde"
    "default.value.serde" "jackdaw.serdes.EdnSerde"
@@ -26,50 +26,61 @@
 
 (defn build-topology
   [builder]
-  (let [ktable (j/ktable builder (topic-config "input-ktable"))
-        _ (j/with-kv-state-store builder {:store-name "input-state-store"})]
-    (-> (j/kstream builder (topic-config "input"))
-        (j/left-join ktable #(assoc %1 :joined %2))
-        (j/peek (fn [[k v]]
-                  (info (str {:key k :value v}))))
+  (let [ktable (j/ktable builder (topic-config "entity"))]
+    (-> builder
+        (j/with-kv-state-store {:store-name "entity-store"})
+        (j/kstream (topic-config "event"))
+        (j/filter (fn [[_ {:keys [type]}]]
+                    (= :update-entity type)))
+        (j/left-join ktable #(assoc %1 :entity %2))
         (j/transform
          (lambdas/transformer-with-ctx
           (fn [ctx k v]
-            (let [store (.getStateStore ctx "input-state-store")
-                  cur-val (.get store k)
-                  _ (info cur-val)
-                  new-val {:d v}]
-              (.put store k new-val)
-              (key-value [k new-val]))))
-         ["input-state-store"])
-        (j/map-values #(dissoc % :joined))
-        (doto #_a
-          (j/to (topic-config "output"))
-          (j/to (topic-config "input-ktable")))))
+            (let [store (.getStateStore ctx "entity-store")
+                  stored-entity (.get store k)]
+              (key-value [k (update v :entity #(or stored-entity %))]))))
+         ["entity-store"])
+        (j/peek (fn [[k v]]
+                  (info "Input:" {:key k :value v})))
+        (j/map-values (fn [{:keys [data entity]}]
+                        (Thread/sleep 3000)
+                        (update entity :count (fnil + 0 0) (:inc data))))
+        (j/peek (fn [[_ v]]
+                  (info "Updated entity:" v)))
+        (j/transform
+         (lambdas/transformer-with-ctx
+          (fn [ctx k v]
+            (let [store (.getStateStore ctx "entity-store")]
+              (.put store k v)
+              (key-value [k v]))))
+         ["entity-store"])
+        (doto #_branch
+          (j/to (topic-config "entity"))
+          (-> (j/map-values (fn [v] {:type :entity-updated :data v}))
+              (j/to (topic-config "event"))))))
   builder)
 
 (defn start-app
-  "Starts the stream processing application."
+  "Starts the Kafka Streams Application."
   [app-config]
   (let [builder (j/streams-builder)
         topology (build-topology builder)
         app (j/kafka-streams topology app-config)]
     (j/start app)
-    (info "pipe is up")
+    (info "Kafka Streams application started")
     app))
 
 (defn stop-app
-  "Stops the stream processing application."
+  "Stops the Kafka Streams Application."
   [app]
   (j/close app)
-  (info "pipe is down"))
+  (info "Kafka Streams application stopped"))
 
 (defn -main
   [& _]
   (start-app (app-config)))
 
 (comment
-
   (def app (start-app (app-config)))
   (stop-app app)
 
@@ -77,15 +88,14 @@
                       {:key-serde (jse/serde)
                        :value-serde (jse/serde)}))
 
-  @(jc/produce! p {:topic-name "input"} :a {:b :c})
+  @(jc/produce! p {:topic-name "event"} :id-1 {:type :update-entity
+                                               :data {:inc 1}})
 
   (def c (jc/consumer {:bootstrap.servers "localhost:9092"
                        :group.id          "mygroup"}
                       {:key-serde (jse/serde)
                        :value-serde (jse/serde)}))
 
-  (jc/subscribe c [{:topic-name "input"}])
-
+  (jc/subscribe c [{:topic-name "event"}])
   (jc/poll c 100)
-
   )
