@@ -1,5 +1,5 @@
 (ns kafka-streams-demo
-  (:require [clojure.tools.logging :refer [info]]
+  (:require [clojure.tools.logging :as log]
             [jackdaw.client :as jc]
             [jackdaw.serdes.edn :as jse]
             [jackdaw.streams :as j]
@@ -26,38 +26,54 @@
 
 (defn build-topology
   [builder]
-  (let [ktable (j/ktable builder (topic-config "entity"))]
+  (let [event-topic (topic-config "event")
+        entity-topic (topic-config "entity")
+        store-name "entity-store"]
     (-> builder
-        (j/with-kv-state-store {:store-name "entity-store"})
-        (j/kstream (topic-config "event"))
+        ;; Add state store to the application
+        (j/with-kv-state-store {:store-name store-name})
+
+        ;; Start streams
+        (j/kstream event-topic)
+
+        ;; Filter by message type
         (j/filter (fn [[_ {:keys [type]}]]
                     (= :update-entity type)))
-        (j/left-join ktable #(assoc %1 :entity %2))
-        (j/transform
-         (lambdas/transformer-with-ctx
-          (fn [ctx k v]
-            (let [store (.getStateStore ctx "entity-store")
-                  stored-entity (.get store k)]
-              (key-value [k (update v :entity #(or stored-entity %))]))))
-         ["entity-store"])
+
+        ;; Left join entity from ktable then state store
+        ;; Event -> Event + Entity
+        (j/left-join (j/ktable builder entity-topic) #(assoc %1 :entity %2))
+        (j/transform (lambdas/transformer-with-ctx
+                      (fn [ctx k v]
+                        (let [store (.getStateStore ctx store-name)
+                              stored-entity (.get store k)]
+                          (key-value [k (update v :entity #(or stored-entity %))]))))
+                     [store-name])
+
+        ;; Process input message and existing entity to updated entity
+        ;; Event + Entity -> Entity'
         (j/peek (fn [[k v]]
-                  (info "Input:" {:key k :value v})))
+                  (log/info "Input:" {:key k :value v})))
         (j/map-values (fn [{:keys [data entity]}]
+                        ;; Simulate long processing time that can cause race condition
                         (Thread/sleep 3000)
                         (update entity :count (fnil + 0 0) (:inc data))))
         (j/peek (fn [[_ v]]
-                  (info "Updated entity:" v)))
-        (j/transform
-         (lambdas/transformer-with-ctx
-          (fn [ctx k v]
-            (let [store (.getStateStore ctx "entity-store")]
-              (.put store k v)
-              (key-value [k v]))))
-         ["entity-store"])
+                  (log/info "Updated entity:" v)))
+
+        ;; Put updated entity to state store
+        (j/transform  (lambdas/transformer-with-ctx
+                       (fn [ctx k v]
+                         (let [store (.getStateStore ctx store-name)]
+                           (.put store k v)
+                           (key-value [k v]))))
+                      [store-name])
         (doto #_branch
-          (j/to (topic-config "entity"))
+          ;; Publish updated entity to Entity topic
+          (j/to entity-topic)
+          ;; Publish output event to Event topic
           (-> (j/map-values (fn [v] {:type :entity-updated :data v}))
-              (j/to (topic-config "event"))))))
+              (j/to event-topic)))))
   builder)
 
 (defn start-app
@@ -67,23 +83,25 @@
         topology (build-topology builder)
         app (j/kafka-streams topology app-config)]
     (j/start app)
-    (info "Kafka Streams application started")
+    (log/info "Kafka Streams application started")
     app))
 
 (defn stop-app
   "Stops the Kafka Streams Application."
   [app]
   (j/close app)
-  (info "Kafka Streams application stopped"))
+  (log/info "Kafka Streams application stopped"))
 
 (defn -main
   [& _]
   (start-app (app-config)))
 
 (comment
+  ;; Start Kafka Streams Appliaction
   (def app (start-app (app-config)))
   (stop-app app)
 
+  ;; Publish input message
   (def p (jc/producer {:bootstrap.servers "localhost:9092"}
                       {:key-serde (jse/serde)
                        :value-serde (jse/serde)}))
@@ -91,11 +109,11 @@
   @(jc/produce! p {:topic-name "event"} :id-1 {:type :update-entity
                                                :data {:inc 1}})
 
+  ;; Subscribe output message
   (def c (jc/consumer {:bootstrap.servers "localhost:9092"
                        :group.id          "mygroup"}
                       {:key-serde (jse/serde)
                        :value-serde (jse/serde)}))
 
   (jc/subscribe c [{:topic-name "event"}])
-  (jc/poll c 100)
-  )
+  (jc/poll c 100))
